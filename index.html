@@ -71,6 +71,8 @@ details[open] summary{margin-bottom:8px}
 .tips ul{margin:0;padding-left:18px;font-size:.8rem;color:#c3ccda}
 .tips li{margin-bottom:4px}
 select{font:inherit;font-size:.8rem;background:#0e1217;color:var(--text);border:1px solid var(--line);border-radius:8px;padding:5px 8px}
+.vres{font-size:.82rem;padding:8px 10px;border-radius:8px;background:#0e1217;margin-top:8px;white-space:pre-line}
+.vres[data-p=ok]{color:var(--ok)}.vres[data-p=warn]{color:var(--warn)}.vres[data-p=info]{color:var(--info)}
 .hidden{display:none!important}
 .notice{border-color:var(--warn);color:var(--warn);font-size:.8rem}
 </style>
@@ -155,6 +157,22 @@ select{font:inherit;font-size:.8rem;background:#0e1217;color:var(--text);border:
   <p id="r-note" class="hidden">※ 오더 앱의 안드로이드 USB 권한은 브라우저에서 읽을 수 없습니다. 리더기를 뽑았다 꽂을 때 허용 팝업이 다시 뜨면 "항상 허용"이 미설정입니다.</p>
   <p id="r-sim" class="hidden">※ 시뮬레이션 결과입니다. 실제 장치를 점검한 것이 아닙니다.</p>
 </section>
+
+<details id="vanbox">
+  <summary>VAN 앱 "항상 열기" 점검 (안드로이드 팝업)</summary>
+  <p class="sub" style="margin-bottom:8px">이 설정은 안드로이드가 관리해서 웹에서 직접 읽을 수 없습니다. 대신 <b>리더기를 다시 꽂았을 때 일어나는 일</b>로 판단합니다. 팝업이 다시 뜨면 미적용, 팝업 없이 VAN 앱이 바로 열리면 적용입니다.</p>
+  <button id="van-start" class="primary" style="font-size:.9rem;padding:10px">점검 시작</button>
+  <div id="van-guide" class="hidden" style="margin-top:8px">
+    <p id="van-msg" style="font-size:.85rem"></p>
+    <div id="van-btns" class="hidden" style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px">
+      <button data-van="popup">팝업이 떴다</button>
+      <button data-van="auto">앱이 바로 열렸다</button>
+      <button data-van="none">아무 일 없었다</button>
+    </div>
+  </div>
+  <p id="van-res" class="vres hidden"></p>
+  <p class="sub" style="margin-top:8px">교차 확인: 안드로이드 설정 → 앱 → VAN 앱 → "기본값으로 열기"(또는 기본 설정 지우기)에서 USB 기본값 설정 여부를 볼 수 있습니다. 메뉴 이름은 기기마다 다릅니다.</p>
+</details>
 
 <details id="gdbox">
   <summary>허용된 장치 관리 (브라우저 권한)</summary>
@@ -284,9 +302,9 @@ const same = (a, b) => a.vendorId === b.vendorId && a.productId === b.productId 
 /* granted: 이 스캔 이전에 이미 브라우저 허용 목록에 있던 장치인지 */
 async function pickDevice() {
   const known = await navigator.usb.getDevices();
-  if (known.length === 1) { log("이미 허용된 장치를 자동 선택", "info"); return { device: known[0], granted: true }; }
+  if (known.length === 1) { log("이미 허용된 장치를 자동 선택", "info"); return { device: known[0], granted: true, n: known.length }; }
   const device = await navigator.usb.requestDevice({ filters: [] });
-  return { device, granted: known.some(d => same(d, device)) };
+  return { device, granted: known.some(d => same(d, device)), n: known.length };
 }
 
 /* ---- 허용 이력 기록 (브라우저는 허용 시작일을 알려주지 않으므로 이 도구가 직접 기록) ---- */
@@ -323,7 +341,9 @@ async function checkPermission(device, granted) {
       why: `현재 주소(${location.protocol}//)에서는 크롬이 USB 허용을 안정적으로 저장하지 않을 수 있습니다. HTTPS 주소로 열어 다시 테스트하세요.` };
   } else if (rec) {
     r = { step: ["warn", "재승인(소실)"], state: "warn", head: `이전 허용(${fmtDate(rec.first)})이 사라져 이번에 다시 승인했습니다.`,
-      why: "사이트 데이터 삭제, 허용 해제, 브라우저 초기화 중 하나가 원인일 수 있습니다." };
+      why: (/재연결|재부팅|전원|재시작/.test($("ctx").value)
+        ? `"${$("ctx").value}" 뒤에 허용이 사라졌습니다. 시리얼 번호는 이전과 같으므로 장치가 바뀐 것은 아닙니다. 이 태블릿의 크롬이 해당 상황에서 허용을 유지하지 않는 것일 수 있습니다.`
+        : "사이트 데이터 삭제, 허용 해제, 브라우저 초기화, USB 재연결 중 하나가 원인일 수 있습니다.") };
   } else {
     r = { step: ["ok", "오늘 처음 허용"], state: "ok", head: "오늘 처음 승인했고 저장되었습니다.",
       why: "처음 승인이라 '이번에만'으로 보입니다. 다음부터 팝업이 없고, 유지 일수는 오늘부터 기록합니다." };
@@ -383,7 +403,8 @@ async function startScan() {
 
   try {
     setStep(1, "run", "검색 중…");
-    const { device, granted } = await pickDevice();
+    const { device, granted, n } = await pickDevice();
+    log(`사전 허용 장치 ${n}개 · 시리얼 ${device.serialNumber || "없음"}`, "info");
     const vid = hex(device.vendorId), pid = hex(device.productId);
     setStep(1, "ok", "감지됨 " + vid);
     log(`감지: VID ${vid}, PID ${pid}, ${device.productName || "이름 없음"}`, "ok");
@@ -508,6 +529,43 @@ checkStorage();
 if (["content:", "file:"].includes(location.protocol)) {
   log("현재 주소(" + location.protocol + "//)에서는 허용 이력이 유지되지 않을 수 있습니다. HTTPS 주소로 올려 사용하세요.", "warn");
 }
+/* ---- VAN 앱 "항상 열기" 간접 점검 ---- */
+const VAN = { active: false, hidden: false, timer: null };
+const VAN_RES = {
+  auto:  { p: "ok",   t: "🟢 항상 열기 적용으로 보입니다", d: "리더기를 꽂자 팝업 없이 VAN 앱이 바로 열렸습니다." },
+  popup: { p: "warn", t: "🟡 항상 열기 미적용", d: "팝업이 다시 떴다면 적용되지 않은 것입니다. 팝업의 체크박스를 체크하고 [확인]을 누른 뒤 다시 점검하세요." },
+  none:  { p: "info", t: "🔵 판단 불가", d: "팝업도 앱 실행도 없었습니다. 리더기가 인식되지 않았거나 다른 앱이 이미 장치를 쓰는 중일 수 있습니다. 연결을 확인하고 다시 시도하세요." }
+};
+const vanMsg = n => $("van-msg").textContent = `리더기 USB를 뽑았다가 3초 뒤 다시 꽂으세요. (${n}초)`;
+function vanAsk() {
+  clearInterval(VAN.timer); VAN.active = false;
+  $("van-msg").textContent = "다시 꽂은 뒤 어떤 일이 있었나요? VAN 앱이 열렸다면 이 화면으로 돌아와 선택하세요.";
+  $("van-btns").classList.remove("hidden");
+}
+$("van-start").addEventListener("click", () => {
+  VAN.hidden = false; VAN.active = true;
+  $("van-res").classList.add("hidden"); $("van-btns").classList.add("hidden");
+  $("van-guide").classList.remove("hidden");
+  let left = 20; vanMsg(left);
+  clearInterval(VAN.timer);
+  VAN.timer = setInterval(() => { left--; left > 0 ? vanMsg(left) : vanAsk(); }, 1000);
+});
+document.addEventListener("visibilitychange", () => {
+  if (!VAN.active) return;
+  if (document.hidden) VAN.hidden = true;
+  else if (VAN.hidden) vanAsk();
+});
+document.querySelectorAll("[data-van]").forEach(b => b.addEventListener("click", () => {
+  const r = VAN_RES[b.dataset.van];
+  const note = `참고: 점검 중 이 화면이 백그라운드로 ${VAN.hidden ? "전환되었습니다" : "전환되지 않았습니다"} (팝업·앱 실행 모두 전환을 일으킬 수 있어 단독 근거는 아닙니다).`;
+  const el = $("van-res");
+  el.dataset.p = r.p; el.textContent = `${r.t}\n${r.d}\n${note}`; el.classList.remove("hidden");
+  $("van-btns").classList.add("hidden");
+  const logs = loadLog();
+  logs.__van = { hist: ((logs.__van && logs.__van.hist) || []).concat({ t: Date.now(), ctx: "VAN 앱 점검", res: r.t.replace(/^\S+\s/, "") }).slice(-15) };
+  saveLog(logs); renderGranted();
+}));
+
 checkEnv();
 </script>
 </body>
