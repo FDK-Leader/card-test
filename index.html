@@ -174,8 +174,17 @@ select{font:inherit;font-size:.8rem;background:#0e1217;color:var(--text);border:
   <p class="sub" style="margin-top:8px">교차 확인: 안드로이드 설정 → 앱 → VAN 앱 → "기본값으로 열기"(또는 기본 설정 지우기)에서 USB 기본값 설정 여부를 볼 수 있습니다. 메뉴 이름은 기기마다 다릅니다.</p>
 </details>
 
+<details id="upbox">
+  <summary>태블릿 가동 기록 (오늘)</summary>
+  <p class="sub" style="margin-bottom:6px">웹 페이지는 전원 켜짐·꺼짐 시각을 직접 읽을 수 없습니다. 이 페이지가 <b>열려 있던 시간</b>으로 추정하며, 공백 구간은 "페이지 닫힘, 다른 앱 사용 또는 전원 꺼짐" 중 하나입니다.</p>
+  <div id="up-bar" style="position:relative;height:18px;background:#0e1217;border-radius:6px;overflow:hidden"></div>
+  <div class="sub" style="display:flex;justify-content:space-between;margin-top:2px"><span>0시</span><span>6시</span><span>12시</span><span>18시</span><span>24시</span></div>
+  <div id="up-list" style="font-size:.8rem;margin-top:8px"></div>
+  <button id="up-clear" style="margin-top:8px;padding:4px 10px;font-size:.75rem">가동 기록 초기화</button>
+</details>
+
 <details id="gdbox">
-  <summary>허용된 장치 관리 (브라우저 권한)</summary>
+  <summary>허용된 장치 관리 · 이전 연결 정보</summary>
   <p class="sub" style="margin-bottom:6px">이 사이트에 저장된 USB 허용 목록입니다. 허용 시작일은 브라우저가 알려주지 않아 이 도구가 처음 확인한 날부터 기록합니다. 안드로이드 앱 권한과는 별개입니다.</p>
   <div id="granted"></div>
 </details>
@@ -376,12 +385,17 @@ async function checkPermission(device, granted) {
   const keep = rec && granted;
   const hist = ((rec && rec.hist) || []).concat({ t: now, ctx, res: r.step[1] }).slice(-15);
   logs[key] = { first: keep ? rec.first : now, last: now, count: (keep ? rec.count : 0) + 1, name: device.productName || "", hist };
+  const serials = Object.assign({}, (prev && prev.serials) || {}), sv = snap.serial || "(없음)";
+  serials[sv] = { first: (serials[sv] && serials[sv].first) || now, last: now, n: ((serials[sv] && serials[sv].n) || 0) + 1 };
+  snap.serials = serials;
   logs.__snap = Object.assign(logs.__snap || {}, { [sk]: snap });
   const saved = saveLog(logs);
 
   const lines = [r.head];
   if (r.why) lines.push((r.state === "ok" ? "참고: " : "사유: ") + r.why);
   lines.push(`식별: ${snap.mfr || "제조사 없음"} / ${snap.prod || "제품명 없음"} / 시리얼 ${snap.serial || "없음"} / 장치 v${snap.ver}`);
+  const sl = Object.entries(snap.serials).map(([sn, i]) => `${sn}(${i.n}회)`).join(", ");
+  lines.push(`시리얼 이력: ${sl}${Object.keys(snap.serials).length > 1 ? " — 시리얼이 바뀐 적이 있습니다" : ""}`);
   if (!prev) lines.push("이전 연결 정보가 없어 비교할 수 없습니다. 이번 정보를 저장했습니다.");
   else if (diff.length) lines.push(`이전 연결(${fmtDate(prev.t)}) 대비 변경: ${diff.join(", ")}`);
   else lines.push(`이전 연결(${fmtDate(prev.t)})과 식별 정보가 동일합니다.`);
@@ -406,16 +420,21 @@ async function renderGranted() {
     }
     out.push(row);
   });
-  const lines = [];
+  const lines = [], snapLines = [];
+  Object.entries(logs.__snap || {}).forEach(([k, v]) => {
+    snapLines.push(`${k} · 최근 ${fmtDate(v.t)} · ${v.prod || "이름 없음"} · 시리얼 ${v.serial || "없음"} · 장치 v${v.ver}`);
+    Object.entries(v.serials || {}).forEach(([sn, i]) => snapLines.push(`  시리얼 ${sn}: 최초 ${fmtDate(i.first)} · 최근 ${fmtDate(i.last)} · ${i.n}회`));
+  });
+  if (snapLines.length) { out.push(mk("이전 연결 정보 (재부팅해도 유지)", "sub")); snapLines.forEach(t => out.push(mk(t))); }
   Object.values(logs).forEach(l => (l.hist || []).slice().reverse().forEach(h => lines.push(`${fmtDate(h.t)} · ${h.ctx} · ${h.res}`)));
   if (lines.length) { out.push(mk("테스트 이력 (최근 순)", "sub")); lines.slice(0, 10).forEach(t => out.push(mk(t))); }
   const bar = document.createElement("div"); bar.style.cssText = "display:flex;gap:6px;margin-top:8px";
   const cp = document.createElement("button"); cp.textContent = "이력 복사";
   cp.addEventListener("click", async () => {
-    try { await navigator.clipboard.writeText(`주소: ${location.href}\n` + lines.join("\n")); log("이력을 복사했습니다.", "ok"); }
+    try { await navigator.clipboard.writeText(`주소: ${location.href}\n` + snapLines.concat(lines).join("\n")); log("이력을 복사했습니다.", "ok"); }
     catch (_) { log("복사 실패: 이력을 직접 캡처해 주세요.", "warn"); }
   });
-  const clr = document.createElement("button"); clr.textContent = "이력 기록 초기화";
+  const clr = document.createElement("button"); clr.textContent = "이력·이전 정보 초기화";
   clr.addEventListener("click", () => { try { localStorage.removeItem(LOG_KEY); } catch (_) {} log("이력 기록을 초기화했습니다.", "warn"); renderGranted(); });
   bar.append(cp, clr);
   out.push(bar);
@@ -560,6 +579,56 @@ checkStorage();
 if (["content:", "file:"].includes(location.protocol)) {
   log("현재 주소(" + location.protocol + "//)에서는 허용 이력이 유지되지 않을 수 있습니다. HTTPS 주소로 올려 사용하세요.", "warn");
 }
+/* ---- 가동 기록 (페이지가 열려 있던 시간 기반 추정) ---- */
+const UP_KEY = "usbUptimeLog.v1", UP_GAP = 90000, DAY = 864e5;
+const emptyUp = () => ({ sessions: [], events: [] });
+const loadUp = () => { try { return JSON.parse(localStorage.getItem(UP_KEY)) || emptyUp(); } catch (_) { return emptyUp(); } };
+const saveUp = d => { try { localStorage.setItem(UP_KEY, JSON.stringify(d)); } catch (_) {} };
+const hm = t => new Date(t).toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit", hour12: false });
+const mins = ms => Math.max(1, Math.round(ms / 60000)) + "분";
+function beat() {
+  const n = Date.now(), d = loadUp(), last = d.sessions[d.sessions.length - 1];
+  if (last && n - last.e <= UP_GAP) last.e = n; else d.sessions.push({ s: n, e: n });
+  d.sessions = d.sessions.filter(x => x.e > n - 7 * DAY);
+  d.events = d.events.filter(x => x.t > n - 7 * DAY);
+  saveUp(d);
+}
+function renderUp() {
+  if (!$("upbox").open) return;
+  const d = loadUp(), now = Date.now(), t0 = new Date().setHours(0, 0, 0, 0), t1 = t0 + DAY;
+  const today = d.sessions.filter(x => x.e > t0 && x.s < t1);
+  $("up-bar").replaceChildren(...today.map(x => {
+    const a = Math.max(x.s, t0), b = Math.min(x.e, t1), el = document.createElement("div");
+    el.style.cssText = `position:absolute;top:0;bottom:0;left:${(a - t0) / DAY * 100}%;width:${Math.max((b - a) / DAY * 100, 0.5)}%;background:var(--ok)`;
+    return el;
+  }));
+  const rows = [];
+  if (!today.length) rows.push("오늘 기록이 없습니다.");
+  else {
+    rows.push(`첫 확인 ${hm(Math.max(today[0].s, t0))} · 마지막 확인 ${hm(Math.min(today[today.length - 1].e, now))}`);
+    today.forEach((x, i) => {
+      const prev = today[i - 1];
+      if (prev && x.s - prev.e > UP_GAP) rows.push(`⚪ 공백 ${hm(prev.e)} ~ ${hm(x.s)} (${mins(x.s - prev.e)}) · 페이지 닫힘·다른 앱 사용·전원 꺼짐 중 하나`);
+      const a = Math.max(x.s, t0), b = Math.min(x.e, now);
+      rows.push(`🟢 확인됨 ${hm(a)} ~ ${hm(b)} (${mins(b - a)})${now - x.e <= UP_GAP ? " · 진행 중" : ""}`);
+    });
+  }
+  d.events.filter(e => e.t >= t0).forEach(e => rows.push(`🔌 ${hm(e.t)} · ${e.type}`));
+  $("up-list").replaceChildren(...rows.map(t => { const el = document.createElement("div"); el.style.marginBottom = "3px"; el.textContent = t; return el; }));
+}
+beat();
+setInterval(() => { if (!document.hidden) { beat(); renderUp(); } }, 20000);
+document.addEventListener("visibilitychange", () => { beat(); renderUp(); });
+addEventListener("pagehide", beat);
+$("upbox").addEventListener("toggle", renderUp);
+$("up-clear").addEventListener("click", () => { try { localStorage.removeItem(UP_KEY); } catch (_) {} beat(); renderUp(); });
+if (navigator.getBattery) navigator.getBattery().then(b => {
+  b.addEventListener("chargingchange", () => {
+    const d = loadUp(); d.events.push({ t: Date.now(), type: `${b.charging ? "충전 시작" : "충전 종료"} (${Math.round(b.level * 100)}%)` });
+    saveUp(d); renderUp();
+  });
+}).catch(() => {});
+
 /* ---- VAN 앱 "항상 열기" 간접 점검 ---- */
 const VAN = { active: false, hidden: false, timer: null };
 const VAN_RES = {
