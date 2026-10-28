@@ -161,8 +161,12 @@ select{font:inherit;font-size:.8rem;background:#0e1217;color:var(--text);border:
 <details id="vanbox">
   <summary>VAN 앱 "항상 열기" 점검 (안드로이드 팝업)</summary>
   <p class="sub" style="margin-bottom:8px">이 설정은 안드로이드가 관리해서 웹에서 직접 읽을 수 없습니다. 대신 <b>리더기를 다시 꽂았을 때 일어나는 일</b>로 판단합니다. 팝업이 다시 뜨면 미적용, 팝업 없이 VAN 앱이 바로 열리면 적용입니다.</p>
+  <label class="sub" style="display:flex;gap:6px;align-items:center;margin-bottom:8px">팝업에 표시된 앱
+    <select id="van-app"><option>AOS Secure</option><option>KSCAT_A</option><option>기타·모름</option></select>
+  </label>
   <button id="van-start" class="primary" style="font-size:.9rem;padding:10px">점검 시작</button>
   <div id="van-guide" class="hidden" style="margin-top:8px">
+    <p id="van-ser" class="sub" style="margin-bottom:4px"></p>
     <p id="van-msg" style="font-size:.85rem"></p>
     <div id="van-btns" class="hidden" style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px">
       <button data-van="popup">팝업이 떴다</button>
@@ -426,6 +430,16 @@ async function renderGranted() {
     Object.entries(v.serials || {}).forEach(([sn, i]) => snapLines.push(`  시리얼 ${sn}: 최초 ${fmtDate(i.first)} · 최근 ${fmtDate(i.last)} · ${i.n}회`));
   });
   if (snapLines.length) { out.push(mk("이전 연결 정보 (재부팅해도 유지)", "sub")); snapLines.forEach(t => out.push(mk(t))); }
+  const vh = (logs.__van && logs.__van.hist) || [];
+  if (vh.length) {
+    const by = {};
+    vh.forEach(h => { const k = h.ser || "알 수 없음"; (by[k] = by[k] || []).push(h); });
+    out.push(mk("VAN 항상 열기 점검 (시리얼별 최근 결과)", "sub"));
+    Object.entries(by).forEach(([sn, a]) => {
+      const l = a[a.length - 1], t = `시리얼 ${sn}: ${l.res} · ${l.app || "앱 미기록"} · ${fmtDate(l.t)} (총 ${a.length}회)`;
+      out.push(mk(t)); snapLines.push(t);
+    });
+  }
   Object.values(logs).forEach(l => (l.hist || []).slice().reverse().forEach(h => lines.push(`${fmtDate(h.t)} · ${h.ctx} · ${h.res}`)));
   if (lines.length) { out.push(mk("테스트 이력 (최근 순)", "sub")); lines.slice(0, 10).forEach(t => out.push(mk(t))); }
   const bar = document.createElement("div"); bar.style.cssText = "display:flex;gap:6px;margin-top:8px";
@@ -630,10 +644,19 @@ if (navigator.getBattery) navigator.getBattery().then(b => {
 }).catch(() => {});
 
 /* ---- VAN 앱 "항상 열기" 간접 점검 ---- */
-const VAN = { active: false, hidden: false, timer: null };
+const VAN = { active: false, hidden: false, timer: null, ser: { s: "알 수 없음", src: "" } };
+async function currentSerial() {
+  try {
+    const l = navigator.usb ? await navigator.usb.getDevices() : [];
+    if (l.length === 1) return { s: l[0].serialNumber || "없음", src: "현재 연결된 리더기" };
+    const snaps = Object.values(loadLog().__snap || {}).sort((a, b) => b.t - a.t);
+    if (snaps[0]) return { s: snaps[0].serial || "없음", src: "마지막 감지 기록" };
+  } catch (_) {}
+  return { s: "알 수 없음", src: "" };
+}
 const VAN_RES = {
   auto:  { p: "ok",   t: "🟢 항상 열기 적용으로 보입니다", d: "리더기를 꽂자 팝업 없이 VAN 앱이 바로 열렸습니다." },
-  popup: { p: "warn", t: "🟡 항상 열기 미적용", d: "팝업이 다시 떴다면 적용되지 않은 것입니다. 팝업의 체크박스를 체크하고 [확인]을 누른 뒤 다시 점검하세요." },
+  popup: { p: "warn", t: "🟡 항상 열기 미적용", d: "팝업이 다시 떴다면 적용되지 않은 것입니다. 팝업의 체크박스를 체크하고 [확인]을 누른 뒤 다시 점검하세요. 팝업의 앱 이름이 바뀌었다면(예: AOS Secure ↔ KSCAT_A) 앱마다 각각 체크해야 할 수 있습니다." },
   none:  { p: "info", t: "🔵 판단 불가", d: "팝업도 앱 실행도 없었습니다. 리더기가 인식되지 않았거나 다른 앱이 이미 장치를 쓰는 중일 수 있습니다. 연결을 확인하고 다시 시도하세요." }
 };
 const vanMsg = n => $("van-msg").textContent = `리더기 USB를 뽑았다가 3초 뒤 다시 꽂으세요. (${n}초)`;
@@ -642,7 +665,9 @@ function vanAsk() {
   $("van-msg").textContent = "다시 꽂은 뒤 어떤 일이 있었나요? VAN 앱이 열렸다면 이 화면으로 돌아와 선택하세요.";
   $("van-btns").classList.remove("hidden");
 }
-$("van-start").addEventListener("click", () => {
+$("van-start").addEventListener("click", async () => {
+  VAN.ser = await currentSerial();
+  $("van-ser").textContent = `점검 대상 리더기 시리얼: ${VAN.ser.s}${VAN.ser.src ? " (" + VAN.ser.src + " 기준)" : " (먼저 USB 장치 감지를 한 번 실행하면 기록됩니다)"}`;
   VAN.hidden = false; VAN.active = true;
   $("van-res").classList.add("hidden"); $("van-btns").classList.add("hidden");
   $("van-guide").classList.remove("hidden");
@@ -662,7 +687,10 @@ document.querySelectorAll("[data-van]").forEach(b => b.addEventListener("click",
   el.dataset.p = r.p; el.textContent = `${r.t}\n${r.d}\n${note}`; el.classList.remove("hidden");
   $("van-btns").classList.add("hidden");
   const logs = loadLog();
-  logs.__van = { hist: ((logs.__van && logs.__van.hist) || []).concat({ t: Date.now(), ctx: "VAN 앱 점검", res: r.t.replace(/^\S+\s/, "") }).slice(-15) };
+  const lastV = ((logs.__van && logs.__van.hist) || []).slice(-1)[0];
+  if (lastV && lastV.ser && lastV.ser !== VAN.ser.s && VAN.ser.s !== "알 수 없음")
+    el.textContent += `\n※ 이전 점검(${lastV.ser})과 다른 리더기입니다. 안드로이드의 '항상 열기'는 장치 정보(시리얼 포함)별로 저장되는 것으로 알려져 있어, 리더기가 바뀌면 다시 팝업이 뜰 수 있습니다.`;
+  logs.__van = { hist: ((logs.__van && logs.__van.hist) || []).concat({ t: Date.now(), ctx: `VAN 앱 점검 · 시리얼 ${VAN.ser.s} · ${$("van-app").value}`, ser: VAN.ser.s, app: $("van-app").value, res: r.t.replace(/^\S+\s/, "") }).slice(-15) };
   saveLog(logs); renderGranted();
 }));
 
