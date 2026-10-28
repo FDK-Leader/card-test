@@ -317,19 +317,44 @@ const saveLog = o => { try { localStorage.setItem(LOG_KEY, JSON.stringify(o)); r
 const fmtDate = t => new Date(t).toLocaleString("ko-KR", { year: "numeric", month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false });
 const dayText = t => { const n = Math.floor((Date.now() - t) / 864e5); return n === 0 ? "오늘" : n + "일째"; };
 
-/* 허용 상태 판정: 허용 목록 재조회 + 시리얼 번호 유무 + 저장된 이력 */
+/* ---- 장치 식별 정보 스냅샷 (이전 연결과 비교) ---- */
+const SNAP_LABEL = { mfr: "제조사", prod: "제품명", serial: "시리얼", ver: "장치 버전", usb: "USB 버전", ifc: "인터페이스" };
+function snapshot(d) {
+  return {
+    t: Date.now(), vid: hex(d.vendorId), pid: hex(d.productId),
+    mfr: d.manufacturerName || "", prod: d.productName || "", serial: d.serialNumber || "",
+    ver: `${d.deviceVersionMajor}.${d.deviceVersionMinor}.${d.deviceVersionSubminor}`,
+    usb: `${d.usbVersionMajor}.${d.usbVersionMinor}`, ifc: describeInterfaces(d)
+  };
+}
+const diffSnap = (a, b) => Object.keys(SNAP_LABEL).filter(k => (a[k] || "") !== (b[k] || ""))
+  .map(k => `${SNAP_LABEL[k]}: ${a[k] || "없음"} → ${b[k] || "없음"}`);
+
+/* 허용 상태 판정: 허용 목록 재조회 + 시리얼 번호 유무 + 저장된 이력 + 이전 연결 비교 */
 async function checkPermission(device, granted) {
   const stored = (await navigator.usb.getDevices()).some(d => same(d, device));
   const hasSerial = !!device.serialNumber;
   const logs = loadLog(), key = devKey(device), rec = logs[key], now = Date.now();
+  const snap = snapshot(device), sk = snap.vid + ":" + snap.pid;
+  const prev = (logs.__snap || {})[sk];
+  const diff = prev ? diffSnap(prev, snap) : null;
+  const ctx = $("ctx").value;
   let r;
   if (!stored) {
     r = { step: ["bad", "저장 안 됨"], state: "warn", head: "허용이 저장되지 않았습니다.",
       why: hasSerial ? "시크릿 모드, 사이트 데이터 차단, 보안 연결 아님 중 하나일 수 있습니다."
                      : "장치에 시리얼 번호가 없어 브라우저가 허용을 기억하지 못합니다." };
+  } else if (!hasSerial && rec && !granted) {
+    r = { step: ["warn", "재연결 시 소실(시리얼 없음)"], state: "warn",
+      head: "이전 허용이 사라졌습니다. 시리얼 번호가 없는 장치라 예상되는 동작입니다.",
+      why: "시리얼 번호가 없는 USB 장치는 연결이 끊기면 크롬이 허용을 저장하지 않는 것으로 알려져 있습니다. 꽂을 때마다 선택 창에서 허용해야 합니다." +
+           (RELIABLE ? "" : " (현재 주소가 content://라 주소의 영향도 배제할 수 없습니다.)") };
   } else if (!hasSerial) {
-    r = { step: ["warn", "1회성 가능"], state: "warn", head: "허용이 유지되지 않을 수 있습니다.",
-      why: "장치에 시리얼 번호가 없어 재연결하면 다시 승인해야 할 수 있습니다." };
+    r = granted
+      ? { step: ["ok", "허용됨(연결 중)"], state: "ok", head: "연결이 유지되는 동안은 허용이 유지됩니다.",
+          why: "시리얼 번호가 없어 USB를 뽑으면 허용이 사라질 수 있습니다." }
+      : { step: ["warn", "1회성 가능"], state: "warn", head: "허용이 유지되지 않을 수 있습니다.",
+          why: "장치에 시리얼 번호가 없어 재연결하면 다시 승인해야 할 수 있습니다." };
   } else if (granted && rec) {
     r = { step: ["ok", dayText(rec.first) + " 유지"], state: "ok",
       head: `허용 유지 중: ${fmtDate(rec.first)}부터 (${dayText(rec.first)}), 확인 ${rec.count + 1}회`, why: "" };
@@ -341,19 +366,25 @@ async function checkPermission(device, granted) {
       why: `현재 주소(${location.protocol}//)에서는 크롬이 USB 허용을 안정적으로 저장하지 않을 수 있습니다. HTTPS 주소로 열어 다시 테스트하세요.` };
   } else if (rec) {
     r = { step: ["warn", "재승인(소실)"], state: "warn", head: `이전 허용(${fmtDate(rec.first)})이 사라져 이번에 다시 승인했습니다.`,
-      why: (/재연결|재부팅|전원|재시작/.test($("ctx").value)
-        ? `"${$("ctx").value}" 뒤에 허용이 사라졌습니다. 시리얼 번호는 이전과 같으므로 장치가 바뀐 것은 아닙니다. 이 태블릿의 크롬이 해당 상황에서 허용을 유지하지 않는 것일 수 있습니다.`
-        : "사이트 데이터 삭제, 허용 해제, 브라우저 초기화, USB 재연결 중 하나가 원인일 수 있습니다.") };
+      why: /재연결|재부팅|전원|재시작/.test(ctx)
+        ? `"${ctx}" 뒤에 허용이 사라졌습니다. 시리얼 번호는 이전과 같으므로 장치가 바뀐 것은 아닙니다. 이 태블릿의 크롬이 해당 상황에서 허용을 유지하지 않는 것일 수 있습니다.`
+        : "사이트 데이터 삭제, 허용 해제, 브라우저 초기화, USB 재연결 중 하나가 원인일 수 있습니다." };
   } else {
     r = { step: ["ok", "오늘 처음 허용"], state: "ok", head: "오늘 처음 승인했고 저장되었습니다.",
       why: "처음 승인이라 '이번에만'으로 보입니다. 다음부터 팝업이 없고, 유지 일수는 오늘부터 기록합니다." };
   }
   const keep = rec && granted;
-  const hist = ((rec && rec.hist) || []).concat({ t: now, ctx: $("ctx").value, res: r.step[1] }).slice(-15);
+  const hist = ((rec && rec.hist) || []).concat({ t: now, ctx, res: r.step[1] }).slice(-15);
   logs[key] = { first: keep ? rec.first : now, last: now, count: (keep ? rec.count : 0) + 1, name: device.productName || "", hist };
+  logs.__snap = Object.assign(logs.__snap || {}, { [sk]: snap });
   const saved = saveLog(logs);
+
   const lines = [r.head];
   if (r.why) lines.push((r.state === "ok" ? "참고: " : "사유: ") + r.why);
+  lines.push(`식별: ${snap.mfr || "제조사 없음"} / ${snap.prod || "제품명 없음"} / 시리얼 ${snap.serial || "없음"} / 장치 v${snap.ver}`);
+  if (!prev) lines.push("이전 연결 정보가 없어 비교할 수 없습니다. 이번 정보를 저장했습니다.");
+  else if (diff.length) lines.push(`이전 연결(${fmtDate(prev.t)}) 대비 변경: ${diff.join(", ")}`);
+  else lines.push(`이전 연결(${fmtDate(prev.t)})과 식별 정보가 동일합니다.`);
   if (!saved) lines.push("※ 이 주소에서는 날짜 기록을 저장할 수 없습니다. HTTPS 주소로 열어 주세요.");
   return { step: r.step, state: r.state, text: lines.join("\n") };
 }
