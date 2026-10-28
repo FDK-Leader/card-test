@@ -1,0 +1,514 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>태블릿 오더 카드리더기 진단기</title>
+<style>
+:root{
+  --bg:#12161c;--panel:#1b212b;--line:#2e3744;--text:#e8ecf2;--sub:#97a3b6;
+  --ok:#3ecf8e;--bad:#ff6b6b;--warn:#f5b942;--info:#5aa9ff;
+  font-family:Pretendard,-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Noto Sans KR",Roboto,system-ui,sans-serif;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);line-height:1.45}
+.wrap{max-width:820px;margin:0 auto;padding:10px 12px 24px}
+header{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:8px}
+h1{font-size:1.05rem;margin:0}
+h2{font-size:1rem;margin:0}
+h3{font-size:.82rem;margin:0 0 2px}
+p{margin:0}
+.sub{color:var(--sub);font-size:.75rem}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin-bottom:8px}
+.badge{font-size:.72rem;padding:3px 9px;border-radius:99px;border:1px solid var(--line);color:var(--sub);white-space:nowrap}
+.badge.ok{color:var(--ok);border-color:var(--ok)}.badge.warn{color:var(--warn);border-color:var(--warn)}
+.tabs{display:flex;gap:6px;margin-bottom:8px}
+.tabs button{flex:1}
+button{font:inherit;cursor:pointer;border:1px solid var(--line);background:transparent;color:var(--sub);padding:9px;border-radius:9px;font-weight:600;font-size:.88rem}
+button:hover{color:var(--text)}
+button:focus-visible,summary:focus-visible{outline:2px solid var(--info);outline-offset:2px}
+button[aria-selected=true]{background:var(--info);color:#06121f;border-color:var(--info)}
+button:disabled{opacity:.5;cursor:wait}
+.primary{width:100%;background:var(--info);color:#06121f;border-color:var(--info);font-size:1rem;padding:13px}
+.primary:hover{color:#06121f;filter:brightness(1.1)}
+.steps{display:grid;grid-template-columns:repeat(4,1fr);gap:5px;margin-bottom:8px}
+.step{border:2px solid var(--line);border-radius:10px;padding:7px 7px;background:var(--panel);min-width:0}
+.step[data-s=run]{border-color:var(--info)}.step[data-s=ok]{border-color:var(--ok)}
+.step[data-s=warn]{border-color:var(--warn)}.step[data-s=bad]{border-color:var(--bad)}
+.step .res{margin-top:6px;font-size:.68rem;font-weight:600;padding:5px 6px;border-radius:6px;background:#0e1217;color:var(--sub);word-break:keep-all;overflow-wrap:anywhere}
+.step[data-s=ok] .res{color:var(--ok)}.step[data-s=warn] .res{color:var(--warn)}
+.step[data-s=bad] .res{color:var(--bad)}.step[data-s=run] .res{color:var(--info)}
+.row{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.row button{padding:4px 10px;font-size:.75rem}
+details{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:8px 12px;margin-bottom:8px}
+summary{cursor:pointer;font-size:.82rem;font-weight:600;color:var(--sub)}
+details[open] summary{margin-bottom:8px}
+.sim{display:flex;flex-wrap:wrap;gap:6px;align-items:center;font-size:.78rem;color:var(--sub)}
+.sim button{padding:5px 9px;font-size:.78rem}
+#log{height:90px;overflow-y:auto;font:.72rem/1.5 ui-monospace,Menlo,Consolas,monospace;color:var(--sub);background:#0b0e12;border-radius:8px;padding:6px}
+#log .ok{color:var(--ok)}#log .warn{color:var(--warn)}#log .bad{color:var(--bad)}#log .info{color:var(--info)}
+.q{text-align:center}
+.q h2{font-size:1.1rem;margin:10px auto 4px;max-width:30em}
+.q .btns{display:flex;gap:8px;margin-top:14px}
+.q .btns button{flex:1;font-size:1rem;padding:13px}
+.yes{background:#1f6f4d;color:#fff;border-color:#1f6f4d}.no{background:#8a2f3b;color:#fff;border-color:#8a2f3b}
+.yes:hover,.no:hover{color:#fff;filter:brightness(1.15)}
+#result{border-width:2px}
+#result[data-t=ok]{border-color:var(--ok)}#result[data-t=bad]{border-color:var(--bad)}
+#result[data-t=warn]{border-color:var(--warn)}#result[data-t=info]{border-color:var(--info)}
+#result[data-t=ok] #r-title{color:var(--ok)}#result[data-t=bad] #r-title{color:var(--bad)}
+#result[data-t=warn] #r-title{color:var(--warn)}#result[data-t=info] #r-title{color:var(--info)}
+#r-sum{font-size:.84rem;margin-top:4px}
+#r-steps{margin:6px 0 0;padding-left:20px;font-size:.84rem}
+#r-steps li{margin-bottom:2px}
+#r-extra,#r-sim,#r-perm,#r-note{font-size:.74rem;margin-top:6px}
+#r-perm{font-weight:600;padding:6px 8px;border-radius:8px;background:#0e1217;white-space:pre-line}
+#r-perm[data-p=ok]{color:var(--ok)}#r-perm[data-p=warn]{color:var(--warn)}
+#r-note{color:var(--sub)}
+.gd{display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:.78rem;padding:5px 0;border-bottom:1px solid var(--line)}
+.gd button{padding:3px 9px;font-size:.72rem}
+#r-sim{color:var(--warn)}
+.tips ul{margin:0;padding-left:18px;font-size:.8rem;color:#c3ccda}
+.tips li{margin-bottom:4px}
+select{font:inherit;font-size:.8rem;background:#0e1217;color:var(--text);border:1px solid var(--line);border-radius:8px;padding:5px 8px}
+.hidden{display:none!important}
+.notice{border-color:var(--warn);color:var(--warn);font-size:.8rem}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <div>
+    <h1>태블릿 오더 하드웨어 진단기</h1>
+    <p class="sub">OTG 젠더 · 카드리더기 · 태블릿 포트</p>
+  </div>
+  <span id="env" class="badge">확인 중</span>
+</header>
+
+<div class="tabs" role="tablist">
+  <button role="tab" id="tab-auto" aria-selected="true" data-tab="auto">자동 진단</button>
+  <button role="tab" id="tab-manual" aria-selected="false" data-tab="manual">수동 문답</button>
+</div>
+
+<!-- AUTO -->
+<section id="sec-auto">
+  <div id="env-warn" class="panel notice hidden"></div>
+
+  <div class="steps">
+    <div class="step" id="step1" data-s="idle"><h3>1 감지</h3><div class="res">미점검</div></div>
+    <div class="step" id="step2" data-s="idle"><h3>2 종류</h3><div class="res">미점검</div></div>
+    <div class="step" id="step3" data-s="idle"><h3>3 포트</h3><div class="res">미점검</div></div>
+    <div class="step" id="step4" data-s="idle"><h3>4 항상 허용</h3><div class="res">미점검</div></div>
+  </div>
+
+  <div id="anchor-auto"></div>
+
+  <button id="scan" class="primary">USB 장치 감지 시작</button>
+  <p class="sub" style="text-align:center;margin:6px 0 4px">리더기를 OTG 젠더로 연결 → 버튼 → 선택 창에서 리더기 선택</p>
+  <label class="sub" style="display:flex;gap:6px;align-items:center;justify-content:center;margin-bottom:8px">이번 테스트 상황
+    <select id="ctx"><option>처음 테스트</option><option>USB 재연결 후</option><option>태블릿 재부팅 후</option><option>배터리·전원 교체 후</option><option>크롬 재시작 후</option><option>기타</option></select>
+  </label>
+
+  <details>
+    <summary>시뮬레이션 테스트</summary>
+    <div class="sim">
+      <button data-sim="normal">정상</button>
+      <button data-sim="otg">OTG 불량</button>
+      <button data-sim="reader">리더기 불량</button>
+      <button data-sim="perm">포트 접근 제한</button>
+    </div>
+  </details>
+
+  <details>
+    <summary>감지 로그</summary>
+    <div class="row" style="margin-bottom:6px"><span class="sub">실시간 기록</span><button id="clear">지우기</button></div>
+    <div id="log" aria-live="polite"></div>
+  </details>
+</section>
+
+<!-- MANUAL -->
+<section id="sec-manual" class="hidden">
+  <div class="panel q" id="qbox">
+    <span id="qbadge" class="badge"></span>
+    <h2 id="qtext"></h2>
+    <p id="qsub" class="sub"></p>
+    <div class="btns">
+      <button class="yes" data-ans="1">예</button>
+      <button class="no" data-ans="0">아니오</button>
+    </div>
+    <div style="margin-top:10px"><button id="qback" class="hidden">← 이전 질문</button></div>
+  </div>
+  <div id="anchor-manual"></div>
+</section>
+
+<!-- RESULT (탭별 anchor로 이동) -->
+<section id="result" class="panel hidden" aria-live="polite">
+  <div class="row">
+    <h2 id="r-title"></h2>
+    <button id="reset">다시 진단</button>
+  </div>
+  <p id="r-sum"></p>
+  <ol id="r-steps"></ol>
+  <p id="r-perm" class="hidden"></p>
+  <p id="r-extra" class="sub"></p>
+  <p id="r-note" class="hidden">※ 오더 앱의 안드로이드 USB 권한은 브라우저에서 읽을 수 없습니다. 리더기를 뽑았다 꽂을 때 허용 팝업이 다시 뜨면 "항상 허용"이 미설정입니다.</p>
+  <p id="r-sim" class="hidden">※ 시뮬레이션 결과입니다. 실제 장치를 점검한 것이 아닙니다.</p>
+</section>
+
+<details id="gdbox">
+  <summary>허용된 장치 관리 (브라우저 권한)</summary>
+  <p class="sub" style="margin-bottom:6px">이 사이트에 저장된 USB 허용 목록입니다. 허용 시작일은 브라우저가 알려주지 않아 이 도구가 처음 확인한 날부터 기록합니다. 안드로이드 앱 권한과는 별개입니다.</p>
+  <div id="granted"></div>
+</details>
+
+<details class="tips">
+  <summary>설정·예방 팁</summary>
+  <ul>
+    <li>리더기 연결 팝업에서 <b>"항상 이 앱에 허용"</b> 선택 (뽑았다 꽂아 팝업이 다시 뜨면 미설정)</li>
+    <li>오더 앱 배터리 사용량을 <b>제한 없음</b>으로, 절전 모드는 해제</li>
+    <li>충전과 데이터가 동시에 되는 <b>PD 허브</b> 사용</li>
+    <li>케이블은 타이로 거치대에 고정, C타입 단자 먼지 제거</li>
+  </ul>
+</details>
+
+</div>
+
+<script>
+"use strict";
+const $ = id => document.getElementById(id);
+
+const VENDORS = {
+  0x0403: "FTDI", 0x067B: "Prolific", 0x1A86: "CH340/CH341",
+  0x10C4: "CP210x", 0x03EB: "Atmel", 0x2341: "Arduino 계열"
+};
+const CLASSES = {
+  0x02: "CDC 통신", 0x0A: "CDC 데이터", 0x03: "HID",
+  0x08: "저장장치", 0xFF: "벤더 전용", 0x0B: "스마트카드"
+};
+
+/* tone: ok | bad | warn | info. 조치는 짧게. */
+const RESULTS = {
+  normal: { tone: "ok", title: "🟢 정상",
+    sum: "장치 감지와 포트 열기가 모두 성공했습니다.",
+    steps: ["앱에서 100원 결제·취소로 최종 확인", "케이블 타이로 젠더 고정"] },
+  otg: { tone: "bad", title: "🔴 장치 미감지 (OTG·포트 의심)",
+    sum: "USB 장치가 감지되지 않았습니다. 선택 창을 취소한 경우도 동일합니다.",
+    steps: ["젠더를 끝까지 다시 꽂고 단자 먼지 제거", "다른 젠더로 교체", "USB 마우스로 젠더 단독 점검"] },
+  reader: { tone: "warn", title: "🟡 리더기·케이블 점검",
+    sum: "USB 연결 오류 또는 장치 무응답입니다.",
+    steps: ["리더기 USB를 뽑고 3초 뒤 재연결", "PD 전원 연결 후 재시도", "동일하면 VAN 대리점에 교체 요청"] },
+  perm: { tone: "info", title: "🔵 감지됨 · 포트 점검 불가",
+    sum: "장치는 정상 감지됐습니다. 앱이 포트를 사용 중이면 열 수 없으며 고장은 아닙니다.",
+    steps: ["앱에서 100원 결제 테스트", "안 되면 USB 팝업에서 \"항상 허용\" 선택", "그래도 안 되면 태블릿 재부팅"] },
+  power: { tone: "bad", title: "🔴 전원 공급 없음",
+    sum: "LED가 꺼져 있습니다. 젠더·케이블·리더기 중 하나가 원인입니다.",
+    steps: ["젠더와 리더기 잭 재연결", "다른 젠더로 LED 확인", "계속 꺼져 있으면 리더기·케이블 교체 문의"] }
+};
+
+const hex = n => "0x" + n.toString(16).padStart(4, "0").toUpperCase();
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const activeTab = () => $("sec-manual").classList.contains("hidden") ? "auto" : "manual";
+
+function log(msg, type = "") {
+  const d = document.createElement("div");
+  if (type) d.className = type;
+  d.textContent = `[${new Date().toLocaleTimeString("ko-KR", {hour12: false})}] ${msg}`;
+  $("log").append(d);
+  $("log").scrollTop = $("log").scrollHeight;
+}
+
+function setStep(n, state, text) {
+  const el = $("step" + n);
+  el.dataset.s = state;
+  el.querySelector(".res").textContent = text;
+}
+
+function resetSteps() {
+  [1, 2, 3, 4].forEach(n => setStep(n, "idle", "미점검"));
+  $("result").classList.add("hidden");
+}
+
+/* 결과 카드를 현재 탭의 anchor로 옮겨 같은 화면에 표시 (스크롤 이동 없음) */
+function showResult(key, { extra = "", sim = false, perm = null } = {}) {
+  const r = RESULTS[key], box = $("result");
+  $("anchor-" + activeTab()).append(box);
+  box.dataset.t = r.tone;
+  $("r-title").textContent = r.title;
+  $("r-sum").textContent = r.sum;
+  $("r-extra").textContent = extra;
+  $("r-extra").classList.toggle("hidden", !extra);
+  $("r-sim").classList.toggle("hidden", !sim);
+  const pe = $("r-perm");
+  pe.classList.toggle("hidden", !perm);
+  if (perm) { pe.dataset.p = perm.state; pe.textContent = perm.text; }
+  $("r-note").classList.toggle("hidden", !perm);
+  $("r-steps").replaceChildren(...r.steps.map(t => {
+    const li = document.createElement("li");
+    li.textContent = t;
+    return li;
+  }));
+  box.classList.remove("hidden");
+  if (activeTab() === "manual") $("qbox").classList.add("hidden");
+}
+
+function checkEnv() {
+  const badge = $("env"), warn = $("env-warn");
+  let msg = "";
+  if (!window.isSecureContext) {
+    msg = "HTTPS가 아니어서 WebUSB를 쓸 수 없습니다. HTTPS 주소나 localhost로 접속하세요. (file:// 불가)";
+  } else if (!("usb" in navigator)) {
+    msg = "WebUSB 미지원 브라우저입니다. 안드로이드 Chrome/Edge를 쓰거나 수동 문답을 이용하세요.";
+  }
+  if (msg) {
+    badge.textContent = "WebUSB 불가"; badge.className = "badge warn";
+    warn.textContent = msg; warn.classList.remove("hidden");
+    log(msg, "warn");
+    return;
+  }
+  badge.textContent = "WebUSB 가능"; badge.className = "badge ok";
+  log("WebUSB 사용 가능", "ok");
+  navigator.usb.addEventListener("connect", e => log(`연결됨: ${e.device.productName || hex(e.device.vendorId)}`, "info"));
+  navigator.usb.addEventListener("disconnect", e => log(`분리됨: ${e.device.productName || hex(e.device.vendorId)}`, "warn"));
+}
+
+function describeInterfaces(device) {
+  const set = new Set();
+  (device.configurations || []).forEach(c =>
+    c.interfaces.forEach(i => i.alternates.forEach(a => set.add(CLASSES[a.interfaceClass] || hex(a.interfaceClass)))));
+  return [...set].join(", ");
+}
+
+const same = (a, b) => a.vendorId === b.vendorId && a.productId === b.productId && (a.serialNumber || "") === (b.serialNumber || "");
+
+/* granted: 이 스캔 이전에 이미 브라우저 허용 목록에 있던 장치인지 */
+async function pickDevice() {
+  const known = await navigator.usb.getDevices();
+  if (known.length === 1) { log("이미 허용된 장치를 자동 선택", "info"); return { device: known[0], granted: true }; }
+  const device = await navigator.usb.requestDevice({ filters: [] });
+  return { device, granted: known.some(d => same(d, device)) };
+}
+
+/* ---- 허용 이력 기록 (브라우저는 허용 시작일을 알려주지 않으므로 이 도구가 직접 기록) ---- */
+const LOG_KEY = "usbPermLog.v1";
+/* content://, file:// 에서는 크롬이 USB 허용을 안정적으로 저장한다고 보장할 수 없음 */
+const RELIABLE = location.protocol === "https:" || ["localhost", "127.0.0.1"].includes(location.hostname);
+const devKey = d => `${hex(d.vendorId)}:${hex(d.productId)}:${d.serialNumber || "noserial"}`;
+const loadLog = () => { try { return JSON.parse(localStorage.getItem(LOG_KEY) || "{}"); } catch (_) { return {}; } };
+const saveLog = o => { try { localStorage.setItem(LOG_KEY, JSON.stringify(o)); return localStorage.getItem(LOG_KEY) !== null; } catch (_) { return false; } };
+const fmtDate = t => new Date(t).toLocaleString("ko-KR", { year: "numeric", month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false });
+const dayText = t => { const n = Math.floor((Date.now() - t) / 864e5); return n === 0 ? "오늘" : n + "일째"; };
+
+/* 허용 상태 판정: 허용 목록 재조회 + 시리얼 번호 유무 + 저장된 이력 */
+async function checkPermission(device, granted) {
+  const stored = (await navigator.usb.getDevices()).some(d => same(d, device));
+  const hasSerial = !!device.serialNumber;
+  const logs = loadLog(), key = devKey(device), rec = logs[key], now = Date.now();
+  let r;
+  if (!stored) {
+    r = { step: ["bad", "저장 안 됨"], state: "warn", head: "허용이 저장되지 않았습니다.",
+      why: hasSerial ? "시크릿 모드, 사이트 데이터 차단, 보안 연결 아님 중 하나일 수 있습니다."
+                     : "장치에 시리얼 번호가 없어 브라우저가 허용을 기억하지 못합니다." };
+  } else if (!hasSerial) {
+    r = { step: ["warn", "1회성 가능"], state: "warn", head: "허용이 유지되지 않을 수 있습니다.",
+      why: "장치에 시리얼 번호가 없어 재연결하면 다시 승인해야 할 수 있습니다." };
+  } else if (granted && rec) {
+    r = { step: ["ok", dayText(rec.first) + " 유지"], state: "ok",
+      head: `허용 유지 중: ${fmtDate(rec.first)}부터 (${dayText(rec.first)}), 확인 ${rec.count + 1}회`, why: "" };
+  } else if (granted) {
+    r = { step: ["ok", "허용됨(시작일 미상)"], state: "ok", head: "이미 허용된 상태입니다. 시작일은 알 수 없습니다.",
+      why: "이 도구에 기록되기 전부터 허용되어 있었습니다. 오늘부터 유지 일수를 기록합니다." };
+  } else if (rec && !RELIABLE) {
+    r = { step: ["warn", "판단 불가(주소)"], state: "warn", head: "허용이 이어졌는지 판단할 수 없습니다.",
+      why: `현재 주소(${location.protocol}//)에서는 크롬이 USB 허용을 안정적으로 저장하지 않을 수 있습니다. HTTPS 주소로 열어 다시 테스트하세요.` };
+  } else if (rec) {
+    r = { step: ["warn", "재승인(소실)"], state: "warn", head: `이전 허용(${fmtDate(rec.first)})이 사라져 이번에 다시 승인했습니다.`,
+      why: "사이트 데이터 삭제, 허용 해제, 브라우저 초기화 중 하나가 원인일 수 있습니다." };
+  } else {
+    r = { step: ["ok", "오늘 처음 허용"], state: "ok", head: "오늘 처음 승인했고 저장되었습니다.",
+      why: "처음 승인이라 '이번에만'으로 보입니다. 다음부터 팝업이 없고, 유지 일수는 오늘부터 기록합니다." };
+  }
+  const keep = rec && granted;
+  const hist = ((rec && rec.hist) || []).concat({ t: now, ctx: $("ctx").value, res: r.step[1] }).slice(-15);
+  logs[key] = { first: keep ? rec.first : now, last: now, count: (keep ? rec.count : 0) + 1, name: device.productName || "", hist };
+  const saved = saveLog(logs);
+  const lines = [r.head];
+  if (r.why) lines.push((r.state === "ok" ? "참고: " : "사유: ") + r.why);
+  if (!saved) lines.push("※ 이 주소에서는 날짜 기록을 저장할 수 없습니다. HTTPS 주소로 열어 주세요.");
+  return { step: r.step, state: r.state, text: lines.join("\n") };
+}
+
+async function renderGranted() {
+  const box = $("granted");
+  if (!window.isSecureContext || !("usb" in navigator)) { box.textContent = "WebUSB 사용 불가"; return; }
+  const list = await navigator.usb.getDevices(), logs = loadLog(), out = [];
+  const mk = (txt, cls = "gd") => { const d = document.createElement("div"); d.className = cls; d.textContent = txt; return d; };
+  if (!list.length) out.push(mk("현재 저장된 허용 장치가 없습니다."));
+  list.forEach(d => {
+    const rec = logs[devKey(d)];
+    const row = mk(`${d.productName || "이름 없음"} · ${hex(d.vendorId)}:${hex(d.productId)} · ` +
+      (rec ? `${dayText(rec.first)} 유지 (최초 ${fmtDate(rec.first)})` : "기록 없음"));
+    if (typeof d.forget === "function") {
+      const b = document.createElement("button"); b.textContent = "허용 해제";
+      b.addEventListener("click", async () => { await d.forget(); log("허용 해제: " + (d.productName || hex(d.vendorId)), "warn"); renderGranted(); });
+      row.append(b);
+    }
+    out.push(row);
+  });
+  const lines = [];
+  Object.values(logs).forEach(l => (l.hist || []).slice().reverse().forEach(h => lines.push(`${fmtDate(h.t)} · ${h.ctx} · ${h.res}`)));
+  if (lines.length) { out.push(mk("테스트 이력 (최근 순)", "sub")); lines.slice(0, 10).forEach(t => out.push(mk(t))); }
+  const bar = document.createElement("div"); bar.style.cssText = "display:flex;gap:6px;margin-top:8px";
+  const cp = document.createElement("button"); cp.textContent = "이력 복사";
+  cp.addEventListener("click", async () => {
+    try { await navigator.clipboard.writeText(`주소: ${location.href}\n` + lines.join("\n")); log("이력을 복사했습니다.", "ok"); }
+    catch (_) { log("복사 실패: 이력을 직접 캡처해 주세요.", "warn"); }
+  });
+  const clr = document.createElement("button"); clr.textContent = "이력 기록 초기화";
+  clr.addEventListener("click", () => { try { localStorage.removeItem(LOG_KEY); } catch (_) {} log("이력 기록을 초기화했습니다.", "warn"); renderGranted(); });
+  bar.append(cp, clr);
+  out.push(bar);
+  box.replaceChildren(...out);
+}
+
+async function startScan() {
+  if (!window.isSecureContext || !("usb" in navigator)) {
+    log("WebUSB를 쓸 수 없어 진단하지 않았습니다.", "warn");
+    return;
+  }
+  const btn = $("scan");
+  btn.disabled = true;
+  resetSteps();
+  log("장치 감지 시작", "info");
+
+  try {
+    setStep(1, "run", "검색 중…");
+    const { device, granted } = await pickDevice();
+    const vid = hex(device.vendorId), pid = hex(device.productId);
+    setStep(1, "ok", "감지됨 " + vid);
+    log(`감지: VID ${vid}, PID ${pid}, ${device.productName || "이름 없음"}`, "ok");
+
+    const vendor = VENDORS[device.vendorId];
+    const ifaces = describeInterfaces(device);
+    const name = device.productName || vendor || "알 수 없는 장치";
+    if (vendor) { setStep(2, "ok", vendor + " 시리얼"); log("시리얼 칩 일치: " + vendor, "ok"); }
+    else { setStep(2, "warn", "알 수 없는 칩"); log(`제조사 ${vid} 미등록. ${ifaces}`, "warn"); }
+
+    setStep(3, "run", "여는 중…");
+    await sleep(250);
+    let opened = false, openErr = "";
+    try {
+      await device.open();
+      if (device.configuration === null && device.configurations.length) {
+        await device.selectConfiguration(device.configurations[0].configurationValue);
+      }
+      opened = true;
+    } catch (e) { openErr = e.message; }
+    finally { if (device.opened) { try { await device.close(); } catch (_) {} } }
+
+    const perm = await checkPermission(device, granted);
+    setStep(4, perm.step[0], perm.step[1]);
+    log(perm.text.replace(/\n/g, " / "), perm.state === "ok" ? "ok" : "warn");
+    renderGranted();
+
+    const extra = `${name} · VID ${vid} · PID ${pid}${ifaces ? " · " + ifaces : ""}`;
+    if (opened) {
+      setStep(3, "ok", "열기 성공"); log("포트 열기 성공", "ok");
+      showResult("normal", { extra, perm });
+    } else {
+      setStep(3, "warn", "열 수 없음"); log("포트 열기 실패: " + openErr, "warn");
+      showResult("perm", { extra, perm });
+    }
+  } catch (err) {
+    log(`${err.name}: ${err.message}`, "bad");
+    if (err.name === "NotFoundError") {
+      setStep(1, "warn", "미선택/미감지");
+      showResult("otg");
+    } else if (err.name === "SecurityError") {
+      setStep(1, "bad", "권한 거부");
+      showResult("reader", {});
+    } else {
+      setStep(1, "bad", "연결 오류");
+      showResult("reader");
+    }
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+const SIMS = {
+  normal: { s: [["ok", "신호 정상"], ["ok", "FTDI 시리얼"], ["ok", "열기 성공"], ["ok", "허용 저장됨"]], r: "normal", p: { state: "ok", text: "브라우저 허용: 이미 허용된 장치입니다. (재승인 불필요)" } },
+  otg:    { s: [["bad", "장치 없음"], ["bad", "확인 불가"], ["bad", "확인 불가"], ["bad", "확인 불가"]], r: "otg" },
+  reader: { s: [["ok", "신호 있음"], ["bad", "응답 없음"], ["bad", "통신 실패"], ["bad", "확인 불가"]], r: "reader" },
+  perm:   { s: [["ok", "감지됨"], ["ok", "시리얼"], ["warn", "열 수 없음"], ["warn", "1회성 가능"]], r: "perm", p: { state: "warn", text: "브라우저 허용: 시리얼 번호가 없어 재연결 시 다시 승인해야 할 수 있습니다." } }
+};
+function simulate(type) {
+  const sim = SIMS[type];
+  resetSteps();
+  sim.s.forEach(([st, tx], i) => setStep(i + 1, st, tx));
+  log("[시뮬레이션] " + type, "info");
+  showResult(sim.r, { sim: true, perm: sim.p || null });
+}
+
+const QUESTIONS = [
+  { t: "카드리더기 LED에 불이 들어오나요?", s: "전면의 붉은색·초록색·파란색 LED를 확인하세요.", yes: 1, no: "power" },
+  { t: "태블릿 알림창에 USB 연결 알림이 있나요?", s: "상단 알림을 내려 확인하세요. 기기에 따라 없을 수 있습니다.", yes: 2, no: "reader" },
+  { t: "오더 앱에서 카드 결제 시 반응이 있나요?", s: "\"카드를 꽂거나 대주세요\" 안내가 뜨는지 확인하세요.", yes: "normal", no: "perm" }
+];
+let qIdx = 0;
+const qHistory = [];
+
+function renderQ() {
+  const q = QUESTIONS[qIdx];
+  $("qbadge").textContent = `질문 ${qIdx + 1} / ${QUESTIONS.length}`;
+  $("qtext").textContent = q.t;
+  $("qsub").textContent = q.s;
+  $("qback").classList.toggle("hidden", qHistory.length === 0);
+}
+function resetManual() {
+  qIdx = 0; qHistory.length = 0;
+  $("qbox").classList.remove("hidden");
+  $("result").classList.add("hidden");
+  renderQ();
+}
+function answer(yes) {
+  const q = QUESTIONS[qIdx], next = yes ? q.yes : q.no;
+  if (typeof next === "number") { qHistory.push(qIdx); qIdx = next; renderQ(); }
+  else showResult(next);
+}
+
+function switchTab(tab) {
+  ["auto", "manual"].forEach(t => {
+    $("tab-" + t).setAttribute("aria-selected", t === tab);
+    $("sec-" + t).classList.toggle("hidden", t !== tab);
+  });
+  $("result").classList.add("hidden");
+  if (tab === "manual") resetManual();
+}
+
+document.querySelectorAll("[data-tab]").forEach(b => b.addEventListener("click", () => switchTab(b.dataset.tab)));
+document.querySelectorAll("[data-sim]").forEach(b => b.addEventListener("click", () => simulate(b.dataset.sim)));
+document.querySelectorAll("[data-ans]").forEach(b => b.addEventListener("click", () => answer(b.dataset.ans === "1")));
+$("scan").addEventListener("click", startScan);
+$("clear").addEventListener("click", () => { $("log").textContent = ""; });
+$("qback").addEventListener("click", () => { qIdx = qHistory.pop() ?? 0; renderQ(); });
+$("reset").addEventListener("click", () => activeTab() === "manual" ? resetManual() : resetSteps());
+
+$("gdbox").addEventListener("toggle", renderGranted);
+async function checkStorage() {
+  try {
+    if (!(navigator.storage && navigator.storage.persist)) return;
+    let ok = await navigator.storage.persisted();
+    if (!ok) ok = await navigator.storage.persist();
+    log(ok ? "사이트 데이터 영구 보존: 승인됨" : "사이트 데이터 영구 보존: 미승인 (저장공간 부족 시 기록이 지워질 수 있음)", ok ? "ok" : "warn");
+  } catch (_) {}
+}
+log(RELIABLE ? "주소 점검: 안정적인 주소입니다." : "주소 점검: 이 주소에서는 허용 유지 여부를 판단하기 어렵습니다.", RELIABLE ? "ok" : "warn");
+checkStorage();
+if (["content:", "file:"].includes(location.protocol)) {
+  log("현재 주소(" + location.protocol + "//)에서는 허용 이력이 유지되지 않을 수 있습니다. HTTPS 주소로 올려 사용하세요.", "warn");
+}
+checkEnv();
+</script>
+</body>
+</html>
